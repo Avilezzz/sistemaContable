@@ -1,0 +1,6 @@
+rich
+colorama
+reportlab
+pandas
+openpyxl
+sqlalchemy
