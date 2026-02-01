@@ -228,8 +228,6 @@ def generar_pdf_libro_mayor(db: Session, nombre_archivo="libro_mayor.pdf"):
         print(f"Error PDF Mayor T: {e}")
         return False
 
-# --- Agregar al final de src/reportes/generador.py ---
-
 def generar_balance_comprobacion(db: Session, nombre_archivo="balance_comprobacion.pdf"):
     """
     Genera el Balance de Comprobación de Sumas y Saldos.
@@ -353,32 +351,46 @@ def generar_balance_comprobacion(db: Session, nombre_archivo="balance_comprobaci
         print(f"Error PDF Balance: {e}")
         return False
 
-# --- Agregar al final de src/reportes/generador.py ---
+# ===========================================
+# FUNCIONES CORREGIDAS PARA ESTADOS FINANCIEROS
+# ===========================================
 
 def obtener_saldo_cuenta(db: Session, codigo_cuenta: str):
-    """Auxiliar: Calcula el saldo final de una cuenta o grupo de cuentas"""
+    """
+    Auxiliar: Calcula el saldo final de una cuenta o grupo de cuentas.
+    CORRECCIÓN: Ahora respeta correctamente la naturaleza de cada cuenta.
+    """
     # Buscamos todas las cuentas que empiecen con ese código (ej: "1" trae todo activo)
     cuentas = db.query(Cuenta).filter(Cuenta.codigo.like(f"{codigo_cuenta}%")).all()
     
     saldo_total = 0.0
     
     for cuenta in cuentas:
-        if not cuenta.detalles: continue
+        if not cuenta.detalles: 
+            continue
         
         debe = sum(d.debe for d in cuenta.detalles)
         haber = sum(d.haber for d in cuenta.detalles)
         
-        if cuenta.naturaleza == 'DEUDORA':
+        # CORRECCIÓN: Respetar la naturaleza de la cuenta
+        if cuenta.naturaleza.upper() == 'DEUDORA':
+            # Para cuentas deudoras: DEBE aumenta, HABER disminuye
             saldo_total += (debe - haber)
-        else:
+        else:  # ACREEDORA
+            # Para cuentas acreedoras: HABER aumenta, DEBE disminuye
             saldo_total += (haber - debe)
             
     return saldo_total
 
 def generar_estado_resultados(db: Session, nombre_archivo="estado_resultados.pdf"):
     """
-    Genera el Estado de Resultados (Pérdidas y Ganancias).
+    VERSIÓN CORREGIDA: Genera el Estado de Resultados (Pérdidas y Ganancias).
     Retorna la UTILIDAD DEL EJERCICIO (float) para usarla en el Balance General.
+    
+    CORRECCIONES:
+    1. Los ingresos (clase 4) son ACREEDORES - su saldo se calcula como HABER - DEBE
+    2. Los gastos (clase 5) y costos (clase 6) son DEUDORES - su saldo se calcula como DEBE - HABER
+    3. Utilidad = Ingresos - (Gastos + Costos)
     """
     doc = SimpleDocTemplate(nombre_archivo, pagesize=A4)
     elements = []
@@ -388,51 +400,104 @@ def generar_estado_resultados(db: Session, nombre_archivo="estado_resultados.pdf
     elements.append(Paragraph("<b>ESTADO DE RESULTADOS INTEGRAL</b>", styles['Title']))
     elements.append(Spacer(1, 12))
 
-    # 1. INGRESOS (Clase 4)
+    # 1. INGRESOS (Clase 4 - ACREEDORA)
+    # Los ingresos aumentan con HABER, disminuyen con DEBE
     total_ingresos = obtener_saldo_cuenta(db, "4")
     
-    # 2. GASTOS (Clase 5)
+    # 2. COSTOS DE VENTAS (Clase 6 - DEUDORA) 
+    # Los costos aumentan con DEBE, disminuyen con HABER
+    total_costos = obtener_saldo_cuenta(db, "6")
+    
+    # 3. UTILIDAD BRUTA
+    utilidad_bruta = total_ingresos - total_costos
+    
+    # 4. GASTOS OPERACIONALES (Clase 5 - DEUDORA)
+    # Los gastos aumentan con DEBE, disminuyen con HABER
     total_gastos = obtener_saldo_cuenta(db, "5")
     
-    # 3. COSTOS (Clase 6 - Opcional si usas costos de venta)
-    total_costos = obtener_saldo_cuenta(db, "6")
+    # 5. UTILIDAD NETA DEL EJERCICIO
+    utilidad_ejercicio = utilidad_bruta - total_gastos
 
-    utilidad_ejercicio = total_ingresos - (total_gastos + total_costos)
-
-    # Estructura visual
+    # Estructura visual mejorada
     data = [
-        ["RUBRO", "VALOR"],
-        ["(+) INGRESOS OPERATIVOS", f"{total_ingresos:,.2f}"],
-        ["(-) GASTOS OPERATIVOS", f"{total_gastos:,.2f}"],
-        ["(-) COSTOS DE VENTAS", f"{total_costos:,.2f}"],
-        ["", ""], # Espacio
-        ["UTILIDAD / (PÉRDIDA) DEL EJERCICIO", f"{utilidad_ejercicio:,.2f}"]
+        ["CONCEPTO", "PARCIAL", "TOTAL"],
+        ["", "", ""],
+        ["INGRESOS OPERACIONALES", "", f"{total_ingresos:,.2f}"],
+        ["(-) COSTO DE VENTAS", f"{total_costos:,.2f}", ""],
+        ["", "", ""],
+        ["UTILIDAD BRUTA EN VENTAS", "", f"{utilidad_bruta:,.2f}"],
+        ["", "", ""],
+        ["(-) GASTOS OPERACIONALES", "", ""],
+        ["    Gastos Administrativos y de Ventas", f"{total_gastos:,.2f}", ""],
+        ["", "", ""],
+        ["UTILIDAD OPERACIONAL", "", f"{(utilidad_bruta - total_gastos):,.2f}"],
+        ["", "", ""],
+        ["UTILIDAD NETA DEL EJERCICIO", "", f"{utilidad_ejercicio:,.2f}"]
     ]
 
-    t = Table(data, colWidths=[300, 100])
+    t = Table(data, colWidths=[280, 80, 80])
+    
+    # Color para utilidad/pérdida
+    color_resultado = colors.green if utilidad_ejercicio >= 0 else colors.red
+    
     t.setStyle(TableStyle([
+        # Encabezado
         ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'), # Números derecha
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        
+        # Resaltar ingresos totales
+        ('BACKGROUND', (0, 2), (-1, 2), colors.lightblue),
+        ('FONTNAME', (0, 2), (-1, 2), 'Helvetica-Bold'),
+        
+        # Resaltar utilidad bruta
+        ('BACKGROUND', (0, 5), (-1, 5), colors.lightyellow),
+        ('FONTNAME', (0, 5), (-1, 5), 'Helvetica-Bold'),
+        
+        # Resaltar utilidad operacional
+        ('BACKGROUND', (0, 10), (-1, 10), colors.lightyellow),
+        ('FONTNAME', (0, 10), (-1, 10), 'Helvetica-Bold'),
+        
         # Resaltar Resultado Final
         ('BACKGROUND', (0, -1), (-1, -1), colors.lightgrey),
         ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-        ('TEXTCOLOR', (0, -1), (-1, -1), colors.black if utilidad_ejercicio >= 0 else colors.red),
+        ('TEXTCOLOR', (0, -1), (-1, -1), color_resultado),
+        ('FONTSIZE', (0, -1), (-1, -1), 11),
     ]))
     
     elements.append(t)
     
+    # Agregar nota explicativa
+    elements.append(Spacer(1, 20))
+    nota_style = ParagraphStyle('Nota', parent=styles['Normal'], fontSize=8, textColor=colors.grey)
+    nota = Paragraph(
+        f"<b>Nota:</b> Los saldos se calculan respetando la naturaleza de cada cuenta. "
+        f"Ingresos (Acreedores) = Haber - Debe. Gastos y Costos (Deudores) = Debe - Haber.",
+        nota_style
+    )
+    elements.append(nota)
+    
     try:
         doc.build(elements)
-        print(f"Estado de Resultados generado. Utilidad: {utilidad_ejercicio}")
+        print(f"Estado de Resultados generado. Utilidad: ${utilidad_ejercicio:,.2f}")
         return utilidad_ejercicio # RETORNAMOS EL VALOR PARA EL BALANCE
     except Exception as e:
         print(f"Error PDF Estado Resultados: {e}")
         return 0.0
 
 def generar_balance_general(db: Session, utilidad_ejercicio: float, nombre_archivo="balance_general.pdf"):
+    """
+    VERSIÓN CORREGIDA: Genera el Balance General (Estado de Situación Financiera).
+    
+    CORRECCIONES:
+    1. Respeta la naturaleza de las cuentas al calcular saldos
+    2. Mejora la presentación con subtotales
+    3. Incluye validación de la ecuación contable
+    4. Formato más profesional y legible
+    """
     # Usamos landscape (horizontal) para que quepan bien las dos columnas
     doc = SimpleDocTemplate(nombre_archivo, pagesize=landscape(A4))
     elements = []
@@ -441,84 +506,170 @@ def generar_balance_general(db: Session, utilidad_ejercicio: float, nombre_archi
     elements.append(Paragraph("<b>ESTADO DE SITUACIÓN FINANCIERA (BALANCE GENERAL)</b>", styles['Title']))
     elements.append(Spacer(1, 12))
 
-    # --- 1. Obtener saldos detallados ---
-    def obtener_cuentas_con_saldo(prefijo):
-        cuentas = db.query(Cuenta).filter(Cuenta.codigo.like(f"{prefijo}%")).order_by(Cuenta.codigo).all()
+    # --- FUNCIÓN AUXILIAR MEJORADA ---
+    def obtener_cuentas_con_saldo_detallado(prefijo):
+        """
+        Obtiene las cuentas con saldo de un grupo específico.
+        Retorna: (lista_filas, total_grupo)
+        """
+        cuentas = db.query(Cuenta).filter(
+            Cuenta.codigo.like(f"{prefijo}%")
+        ).order_by(Cuenta.codigo).all()
+        
         lista_resultado = []
         total_grupo = 0.0
+        
         for c in cuentas:
-            # Solo incluimos cuentas con movimientos o que sean de detalle (puedes ajustar este filtro)
+            if not c.detalles:
+                continue
+                
             debe = sum(d.debe for d in c.detalles)
             haber = sum(d.haber for d in c.detalles)
             
-            saldo = (debe - haber) if c.naturaleza == 'DEUDORA' else (haber - debe)
-            if abs(saldo) > 0.001: # Solo si tiene saldo
-                lista_resultado.append([c.codigo, c.nombre, f"{saldo:,.2f}"])
+            # CORRECCIÓN: Calcular saldo según naturaleza
+            if c.naturaleza.upper() == 'DEUDORA':
+                saldo = debe - haber
+            else:  # ACREEDORA
+                saldo = haber - debe
+            
+            # Solo incluir si tiene saldo significativo
+            if abs(saldo) > 0.01:
+                # Indentación visual según nivel de cuenta
+                nivel = c.codigo.count('.')
+                indent = "    " * nivel
+                nombre_indentado = f"{indent}{c.nombre}"
+                
+                lista_resultado.append([
+                    c.codigo, 
+                    Paragraph(nombre_indentado, styles['Normal']), 
+                    f"{saldo:,.2f}"
+                ])
                 total_grupo += saldo
+        
         return lista_resultado, total_grupo
 
-    # Obtener datos
-    lista_activos, total_activo = obtener_cuentas_con_saldo("1")
-    lista_pasivos, total_pasivo = obtener_cuentas_con_saldo("2")
-    lista_patrimonio, total_patrimonio_neto = obtener_cuentas_con_saldo("3")
+    # --- OBTENER DATOS ---
+    # ACTIVOS (Clase 1 - DEUDORA)
+    lista_activos, total_activo = obtener_cuentas_con_saldo_detallado("1")
     
-    total_patrimonio_final = total_patrimonio_neto + utilidad_ejercicio
+    # PASIVOS (Clase 2 - ACREEDORA)
+    lista_pasivos, total_pasivo = obtener_cuentas_con_saldo_detallado("2")
     
-    # Combinar Pasivo y Patrimonio para el lado derecho
-    derecha = [["", "<b>PASIVO</b>", ""]] + lista_pasivos + \
-              [["", f"<b>TOTAL PASIVOS</b>", f"<b>{total_pasivo:,.2f}</b>"]] + \
-              [["", "", ""], ["", "<b>PATRIMONIO</b>", ""]] + lista_patrimonio + \
-              [["", "Resultado Ejercicio", f"{utilidad_ejercicio:,.2f}"],
-               ["", f"<b>TOTAL PATRIMONIO</b>", f"<b>{total_patrimonio_final:,.2f}</b>"]]
+    # PATRIMONIO (Clase 3 - ACREEDORA)
+    lista_patrimonio_base, total_patrimonio_base = obtener_cuentas_con_saldo_detallado("3")
+    
+    # PATRIMONIO TOTAL = Patrimonio Base + Utilidad del Ejercicio
+    total_patrimonio_final = total_patrimonio_base + utilidad_ejercicio
+    
+    # --- CONSTRUCCIÓN DEL LADO IZQUIERDO (ACTIVOS) ---
+    izquierda = [
+        ["", Paragraph("<b>ACTIVOS</b>", styles['Heading3']), ""]
+    ] + lista_activos + [
+        ["", "", ""],
+        ["", Paragraph("<b>TOTAL ACTIVOS</b>", styles['Heading3']), f"<b>{total_activo:,.2f}</b>"]
+    ]
 
-    izquierda = [["", "<b>ACTIVO</b>", ""]] + lista_activos + \
-                [["", f"<b>TOTAL ACTIVOS</b>", f"<b>{total_activo:,.2f}</b>"]]
+    # --- CONSTRUCCIÓN DEL LADO DERECHO (PASIVOS + PATRIMONIO) ---
+    derecha = [
+        ["", Paragraph("<b>PASIVOS</b>", styles['Heading3']), ""]
+    ] + lista_pasivos + [
+        ["", "", ""],
+        ["", Paragraph("<b>TOTAL PASIVOS</b>", styles['Normal']), f"<b>{total_pasivo:,.2f}</b>"],
+        ["", "", ""],
+        ["", Paragraph("<b>PATRIMONIO</b>", styles['Heading3']), ""]
+    ] + lista_patrimonio_base + [
+        ["", Paragraph("Resultado del Ejercicio", styles['Normal']), f"{utilidad_ejercicio:,.2f}"],
+        ["", "", ""],
+        ["", Paragraph("<b>TOTAL PATRIMONIO</b>", styles['Normal']), f"<b>{total_patrimonio_final:,.2f}</b>"],
+        ["", "", ""],
+        ["", Paragraph("<b>TOTAL PASIVO + PATRIMONIO</b>", styles['Heading3']), f"<b>{(total_pasivo + total_patrimonio_final):,.2f}</b>"]
+    ]
 
-    # --- 2. Emparejar las listas para la tabla ---
-    data = [["CÓDIGO", "CUENTA (ACTIVOS)", "VALOR", "CÓDIGO", "CUENTA (PASIVO + PATR.)", "VALOR"]]
+    # --- EMPAREJAR LAS LISTAS ---
+    data = [[
+        "CÓD", "ACTIVOS", "VALOR", 
+        "CÓD", "PASIVOS Y PATRIMONIO", "VALOR"
+    ]]
     
     max_rows = max(len(izquierda), len(derecha))
+    
     for i in range(max_rows):
         fila = []
-        # Lado izquierdo (Activos)
-        if i < len(izquierda): fila.extend(izquierda[i])
-        else: fila.extend(["", "", ""])
         
-        # Lado derecho (Pasivo + Patrimonio)
-        if i < len(derecha): fila.extend(derecha[i])
-        else: fila.extend(["", "", ""])
+        # Lado izquierdo
+        if i < len(izquierda):
+            fila.extend(izquierda[i])
+        else:
+            fila.extend(["", "", ""])
+        
+        # Lado derecho
+        if i < len(derecha):
+            fila.extend(derecha[i])
+        else:
+            fila.extend(["", "", ""])
+        
         data.append(fila)
 
-    # Fila final de validación (Ecuación Contable)
-    total_derecho = total_pasivo + total_patrimonio_final
-    data.append(["", "<b>TOTAL ACTIVO</b>", f"<b>{total_activo:,.2f}</b>", 
-                 "", "<b>TOTAL PASIVO + PATRIMONIO</b>", f"<b>{total_derecho:,.2f}</b>"])
-
-    # --- 3. Estilo de la Tabla ---
-    t = Table(data, colWidths=[50, 200, 70, 50, 200, 70])
+    # --- CREAR Y ESTILIZAR TABLA ---
+    t = Table(data, colWidths=[45, 200, 75, 45, 200, 75])
+    
     estilo = TableStyle([
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-        ('FONTSIZE', (0, 0), (-1, -1), 8),
-        ('ALIGN', (2, 0), (2, -1), 'RIGHT'), # Valores izquierda
-        ('ALIGN', (5, 0), (5, -1), 'RIGHT'), # Valores derecha
+        # Encabezado
         ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('BACKGROUND', (0, -1), (-1, -1), colors.lightgreen), # Fila final
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+        
+        # Alineación general
+        ('ALIGN', (2, 1), (2, -1), 'RIGHT'),  # Valores activos
+        ('ALIGN', (5, 1), (5, -1), 'RIGHT'),  # Valores pasivo+patrimonio
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        
+        # Grid
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('FONTSIZE', (0, 1), (-1, -1), 8),
+        
+        # Línea vertical separadora
+        ('LINEAFTER', (2, 0), (2, -1), 2, colors.darkblue),
     ])
     
     t.setStyle(estilo)
     elements.append(t)
 
-    # Alerta de descuadre
-    if round(total_activo, 2) != round(total_derecho, 2):
-        diff = round(total_activo - total_derecho, 2)
-        elements.append(Spacer(1, 12))
-        elements.append(Paragraph(f"<b color='red'>ALERTA: EL BALANCE NO CUADRA POR {diff}</b>", styles['Normal']))
+    # --- VALIDACIÓN DE ECUACIÓN CONTABLE ---
+    total_derecho = total_pasivo + total_patrimonio_final
+    diferencia = round(total_activo - total_derecho, 2)
+    
+    elements.append(Spacer(1, 15))
+    
+    if abs(diferencia) < 0.01:  # Considera descuadres menores a 1 centavo como OK
+        msg = "✓ ECUACIÓN CONTABLE VERIFICADA: ACTIVO = PASIVO + PATRIMONIO"
+        color_msg = colors.green
+    else:
+        msg = f"✗ ALERTA: DESCUADRE DE ${abs(diferencia):,.2f} - REVISAR ASIENTOS"
+        color_msg = colors.red
+    
+    validacion_style = ParagraphStyle(
+        'Validacion', 
+        parent=styles['Normal'], 
+        textColor=color_msg,
+        fontSize=11,
+        fontName='Helvetica-Bold',
+        alignment=1  # Centrado
+    )
+    
+    elements.append(Paragraph(msg, validacion_style))
+    
+    # Detalle de la ecuación
+    elements.append(Spacer(1, 10))
+    detalle_ec = f"Activos: ${total_activo:,.2f} | Pasivos: ${total_pasivo:,.2f} | Patrimonio: ${total_patrimonio_final:,.2f}"
+    elements.append(Paragraph(detalle_ec, styles['Normal']))
 
     try:
         doc.build(elements)
+        print(f"Balance General generado exitosamente.")
         return True
     except Exception as e:
-        print(f"Error PDF Balance General: {e}")
+        print(f"Error al generar PDF Balance General: {e}")
         return False
