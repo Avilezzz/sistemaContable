@@ -72,3 +72,21 @@ class MovimientoInventario(Base):
     saldo_cantidad = Column(Integer, default=0) 
     
     producto = relationship("Producto", back_populates="movimientos")
+
+# Al final de src/modelos/entidades.py, después de MovimientoInventario
+
+class Empresa(Base):
+    __tablename__ = "empresa"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    ruc = Column(String, unique=True, nullable=False)  # RUC o identificación fiscal
+    nombre = Column(String, nullable=False)
+    nombre_comercial = Column(String)
+    direccion = Column(String)
+    telefono = Column(String)
+    email = Column(String)
+    ciudad = Column(String, default="Babahoyo")
+    pais = Column(String, default="Ecuador")
+    
+    def __repr__(self):
+        return f"<Empresa {self.nombre}>"

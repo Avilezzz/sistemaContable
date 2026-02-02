@@ -21,7 +21,53 @@ from src.reportes.generador import (
 )
 from src.servicios.inventario import crear_producto, registrar_compra, registrar_venta
 from src.reportes.kardex_pdf import generar_reporte_fifo, generar_reporte_pmp
+from src.servicios.empresa import configurar_empresa, obtener_empresa, empresa_configurada
 console = Console()
+
+
+# Crear nueva función para la vista de empresa
+def vista_configurar_empresa():
+    """Configurar o editar datos de la empresa"""
+    console.clear()
+    console.print(Panel("[bold cyan]CONFIGURACIÓN DE EMPRESA[/bold cyan]"))
+    
+    db = next(get_db())
+    empresa_actual = obtener_empresa(db)
+    
+    if empresa_actual:
+        console.print("\n[yellow]Empresa existente encontrada. Los datos actuales se sobrescribirán.[/yellow]")
+        console.print(f"Nombre actual: {empresa_actual.nombre}")
+    
+    # Solicitar datos
+    datos = {}
+    datos['ruc'] = Prompt.ask("RUC/Identificación Fiscal", 
+                               default=empresa_actual.ruc if empresa_actual else "")
+    datos['nombre'] = Prompt.ask("Nombre Legal de la Empresa",
+                                  default=empresa_actual.nombre if empresa_actual else "")
+    datos['nombre_comercial'] = Prompt.ask("Nombre Comercial (opcional)",
+                                           default=empresa_actual.nombre_comercial if empresa_actual else "")
+    datos['direccion'] = Prompt.ask("Dirección",
+                                    default=empresa_actual.direccion if empresa_actual else "")
+    datos['telefono'] = Prompt.ask("Teléfono",
+                                   default=empresa_actual.telefono if empresa_actual else "")
+    datos['email'] = Prompt.ask("Email",
+                                default=empresa_actual.email if empresa_actual else "")
+    datos['ciudad'] = Prompt.ask("Ciudad",
+                                 default=empresa_actual.ciudad if empresa_actual else "Babahoyo")
+    datos['pais'] = Prompt.ask("País",
+                               default=empresa_actual.pais if empresa_actual else "Ecuador")
+    
+    # Guardar
+    exito, msg, empresa = configurar_empresa(db, datos)
+    
+    if exito:
+        console.print(f"\n[bold green]✓ {msg}[/bold green]")
+        console.print(f"\n[cyan]Empresa: {empresa.nombre}[/cyan]")
+        console.print(f"[cyan]RUC: {empresa.ruc}[/cyan]")
+    else:
+        console.print(f"\n[bold red]✗ {msg}[/bold red]")
+    
+    input("\nPresione Enter para continuar...")
 
 # --- NUEVA FUNCIÓN: SELECTOR VISUAL DE CUENTAS ---
 def seleccionar_cuenta_interactiva(db):
@@ -282,6 +328,20 @@ def menu_inventario():
 # --- MENÚ PRINCIPAL ---
 def mostrar_menu():
     console.clear()
+    # Mostrar información de empresa si existe
+    db = next(get_db())
+    empresa = obtener_empresa(db)
+    
+    if empresa:
+        titulo = f"[bold cyan]SISTEMA CONTABLE - {empresa.nombre_comercial or empresa.nombre}[/bold cyan]"
+    else:
+        titulo = "[bold cyan]SISTEMA CONTABLE PROFESIONAL CLI[/bold cyan]"
+    
+    console.print(Panel.fit(titulo, subtitle="v2.1"))
+    
+    if not empresa:
+        console.print("[bold yellow]⚠ ADVERTENCIA: Configure los datos de su empresa primero (opción 0)[/bold yellow]\n")
+    console.print("[0] ⚙️  Configurar Datos de Empresa")  # NUEVA OPCIÓN    
     console.print(Panel.fit("[bold cyan]SISTEMA CONTABLE PROFESIONAL CLI[/bold cyan]", subtitle="v2.0"))
     console.print("[1] 📂 Inicializar/Resetear Base de Datos")
     console.print("[2] 📥 Importar Plan de Cuentas (Excel)")
@@ -298,7 +358,10 @@ def main():
     init_db()
     while True:
         mostrar_menu()
-        opcion = Prompt.ask("\n[bold yellow]Seleccione una opción[/bold yellow]", choices=[str(i) for i in range(1, 10)])
+        opcion = Prompt.ask("\n[bold yellow]Seleccione una opción[/bold yellow]", choices=[str(i) for i in range(0, 10)])
+        
+        if opcion == "0":  # NUEVA OPCIÓN
+            vista_configurar_empresa()
 
         if opcion == "1":
             if Prompt.ask("¿Resetear BD? SE BORRARÁ TODO", choices=["s", "n"]) == "s":
