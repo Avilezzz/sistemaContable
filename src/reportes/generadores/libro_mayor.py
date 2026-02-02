@@ -6,13 +6,20 @@ from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from sqlalchemy.orm import Session
-from src.modelos.entidades import Cuenta
+from src.modelos.entidades import Cuenta, Asiento
+from src.servicios.empresa import obtener_empresa
+from src.reportes.encabezado import crear_encabezado_empresa
 
 
 def generar_pdf_libro_mayor(db: Session, nombre_archivo="libro_mayor.pdf"):
     """
     Genera un reporte visual en forma de "CUENTAS T".
     """
+    empresa = obtener_empresa(db)
+    asientos = db.query(Asiento).order_by(Asiento.fecha).all()
+    fecha_inicio = asientos[0].fecha if asientos else None
+    fecha_fin = asientos[-1].fecha if asientos else None
+
     doc = SimpleDocTemplate(nombre_archivo, pagesize=A4)
     elements = []
     styles = getSampleStyleSheet()
@@ -22,9 +29,11 @@ def generar_pdf_libro_mayor(db: Session, nombre_archivo="libro_mayor.pdf"):
     estilo_derecha = ParagraphStyle('Derecha', parent=styles['Normal'], alignment=2)  # 2 = Right
     estilo_negrita = ParagraphStyle('Negrita', parent=styles['Normal'], fontName='Helvetica-Bold')
     
-    # Título Principal
-    elements.append(Paragraph("LIBRO MAYOR (FORMATO T)", styles['Title']))
-    elements.append(Spacer(1, 15))
+    if empresa:
+        elements.extend(crear_encabezado_empresa(empresa, "LIBRO MAYOR (FORMATO T)", fecha_inicio, fecha_fin))
+    else:
+        elements.append(Paragraph("LIBRO MAYOR (FORMATO T)", styles['Title']))
+        elements.append(Spacer(1, 15))
     
     # Consultar cuentas
     cuentas = db.query(Cuenta).order_by(Cuenta.codigo).all()

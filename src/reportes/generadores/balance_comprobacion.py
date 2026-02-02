@@ -6,21 +6,40 @@ from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from sqlalchemy.orm import Session
-from src.modelos.entidades import Cuenta
-
+from src.modelos.entidades import Cuenta,Asiento
+from src.servicios.empresa import obtener_empresa
+from src.reportes.encabezado import crear_encabezado_empresa
 
 def generar_balance_comprobacion(db: Session, nombre_archivo="balance_comprobacion.pdf"):
     """
     Genera el Balance de Comprobación de Sumas y Saldos.
     Verifica que (Sumas Debe == Sumas Haber) y (Saldo Deudor == Saldo Acreedor).
     """
+    # 1. OBTENER EMPRESA Y PERÍODO
+    empresa = obtener_empresa(db)
+    asientos = db.query(Asiento).order_by(Asiento.fecha).all()
+    
+    fecha_inicio = asientos[0].fecha if asientos else None
+    fecha_fin = asientos[-1].fecha if asientos else None
+
     doc = SimpleDocTemplate(nombre_archivo, pagesize=A4)
     elements = []
     styles = getSampleStyleSheet()
     
-    # 1. Título
-    elements.append(Paragraph("BALANCE DE COMPROBACIÓN DE SUMAS Y SALDOS", styles['Title']))
-    elements.append(Spacer(1, 12))
+    # 2. AGREGAR ENCABEZADO PROFESIONAL
+    if empresa:
+        elements.extend(
+            crear_encabezado_empresa(
+                empresa,
+                "BALANCE DE COMPROBACIÓN",
+                fecha_inicio=fecha_inicio,
+                fecha_fin=fecha_fin,
+                moneda="USD"
+            )
+        )
+    else:
+        elements.append(Paragraph("BALANCE DE COMPROBACIÓN", styles['Title']))
+        elements.append(Spacer(1, 12))
     
     # 2. Encabezados de Tabla
     data = [[

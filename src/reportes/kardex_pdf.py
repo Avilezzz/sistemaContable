@@ -3,19 +3,39 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from sqlalchemy.orm import Session
-from src.modelos.entidades import Producto
+from src.modelos.entidades import Producto, MovimientoInventario
+from src.servicios.empresa import obtener_empresa
+from src.reportes.encabezado import crear_encabezado_empresa
 
-def _crear_pdf_kardex(nombre_archivo, titulo, lista_datos_productos):
+def _crear_pdf_kardex(db: Session, nombre_archivo, titulo, lista_datos_productos):
     """
     Función visual que genera el documento PDF. 
     Recibe los datos ya calculados por FIFO o PMP.
     """
+    # 1. OBTENER DATOS DE EMPRESA Y FECHAS PARA EL ENCABEZADO
+    empresa = obtener_empresa(db)
+    # Buscamos el rango de fechas de todos los movimientos para el encabezado
+    todos_movs = db.query(MovimientoInventario).order_by(MovimientoInventario.fecha).all()
+    fecha_inicio = todos_movs[0].fecha if todos_movs else None
+    fecha_fin = todos_movs[-1].fecha if todos_movs else None
+
     doc = SimpleDocTemplate(nombre_archivo, pagesize=landscape(A4))
     elements = []
     styles = getSampleStyleSheet()
 
-    elements.append(Paragraph(f"<b>{titulo}</b>", styles['Title']))
-    elements.append(Spacer(1, 15))
+    # 2. AGREGAR ENCABEZADO PROFESIONAL (Estilo Libro Diario)
+    if empresa:
+        elements.extend(
+            crear_encabezado_empresa(
+                empresa, 
+                titulo, 
+                fecha_inicio=fecha_inicio, 
+                fecha_fin=fecha_fin
+            )
+        )
+    else:
+        elements.append(Paragraph(f"<b>{titulo}</b>", styles['Title']))
+        elements.append(Spacer(1, 15))
 
     if not lista_datos_productos:
         elements.append(Paragraph("No hay movimientos registrados en el sistema.", styles['Normal']))
@@ -107,7 +127,7 @@ def generar_reporte_fifo(db: Session):
 
         datos_procesados.append({'codigo': prod.codigo, 'nombre': prod.nombre, 'filas': filas})
 
-    return _crear_pdf_kardex("reporte_fifo.pdf", "KARDEX MÉTODO FIFO (RECALCULADO)", datos_procesados)
+    return _crear_pdf_kardex(db, "reporte_fifo.pdf", "KARDEX MÉTODO FIFO (RECALCULADO)", datos_procesados)
 
 # ==========================================
 # LÓGICA DE RECALCULO PMP (PROMEDIO)
@@ -144,4 +164,4 @@ def generar_reporte_pmp(db: Session):
 
         datos_procesados.append({'codigo': prod.codigo, 'nombre': prod.nombre, 'filas': filas})
 
-    return _crear_pdf_kardex("reporte_pmp.pdf", "KARDEX PROMEDIO PONDERADO (RECALCULADO)", datos_procesados)
+    return _crear_pdf_kardex(db,"reporte_pmp.pdf", "KARDEX PROMEDIO PONDERADO (RECALCULADO)", datos_procesados)

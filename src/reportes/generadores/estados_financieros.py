@@ -7,6 +7,9 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from sqlalchemy.orm import Session
 from .utilidades import obtener_saldo_cuenta, obtener_cuentas_con_saldo_detallado
+from src.modelos.entidades import Asiento
+from src.servicios.empresa import obtener_empresa
+from src.reportes.encabezado import crear_encabezado_empresa
 
 
 def generar_estado_resultados(db: Session, nombre_archivo="estado_resultados.pdf"):
@@ -19,13 +22,20 @@ def generar_estado_resultados(db: Session, nombre_archivo="estado_resultados.pdf
     2. Los gastos (clase 5) y costos (clase 6) son DEUDORES - su saldo se calcula como DEBE - HABER
     3. Utilidad = Ingresos - (Gastos + Costos)
     """
+    empresa = obtener_empresa(db)
+    asientos = db.query(Asiento).order_by(Asiento.fecha).all()
+    fecha_inicio = asientos[0].fecha if asientos else None
+    fecha_fin = asientos[-1].fecha if asientos else None
+
     doc = SimpleDocTemplate(nombre_archivo, pagesize=A4)
     elements = []
     styles = getSampleStyleSheet()
     
-    # Título
-    elements.append(Paragraph("ESTADO DE RESULTADOS INTEGRAL", styles['Title']))
-    elements.append(Spacer(1, 12))
+    if empresa:
+        elements.extend(crear_encabezado_empresa(empresa, "ESTADO DE RESULTADOS INTEGRAL", fecha_inicio, fecha_fin))
+    else:
+        elements.append(Paragraph("ESTADO DE RESULTADOS INTEGRAL", styles['Title']))
+        elements.append(Spacer(1, 12))
     
     # 1. INGRESOS (Clase 4 - ACREEDORA)
     total_ingresos = obtener_saldo_cuenta(db, "4")
@@ -120,12 +130,20 @@ def generar_balance_general(db: Session, utilidad_ejercicio: float, nombre_archi
     4. Formato más profesional y legible
     """
     # Usamos landscape (horizontal) para que quepan bien las dos columnas
+    empresa = obtener_empresa(db)
+    asientos = db.query(Asiento).order_by(Asiento.fecha).all()
+    fecha_corte = asientos[-1].fecha if asientos else None
+
     doc = SimpleDocTemplate(nombre_archivo, pagesize=landscape(A4))
     elements = []
     styles = getSampleStyleSheet()
     
-    elements.append(Paragraph("ESTADO DE SITUACIÓN FINANCIERA (BALANCE GENERAL)", styles['Title']))
-    elements.append(Spacer(1, 12))
+    if empresa:
+        # Se muestra la fecha de corte final
+        elements.extend(crear_encabezado_empresa(empresa, "BALANCE GENERAL", fecha_corte))
+    else:
+        elements.append(Paragraph("BALANCE GENERAL", styles['Title']))
+        elements.append(Spacer(1, 12))
     
     # --- OBTENER DATOS ---
     # ACTIVOS (Clase 1 - DEUDORA)

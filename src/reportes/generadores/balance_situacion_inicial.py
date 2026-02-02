@@ -8,7 +8,8 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from sqlalchemy.orm import Session
 from src.modelos.entidades import Asiento, Cuenta
-
+from src.servicios.empresa import obtener_empresa
+from src.reportes.encabezado import crear_encabezado_empresa
 
 def generar_balance_situacion_inicial(db: Session, nombre_archivo="balance_situacion_inicial.pdf"):
     """
@@ -18,13 +19,32 @@ def generar_balance_situacion_inicial(db: Session, nombre_archivo="balance_situa
     Returns:
         bool: True si se generó exitosamente, False en caso contrario
     """
+    # 1. OBTENER DATOS
+    empresa = obtener_empresa(db)
+    primer_asiento = db.query(Asiento).order_by(Asiento.fecha).first()
+    
+    if not primer_asiento:
+        print("❌ No hay asientos registrados.")
+        return False
+
+
     doc = SimpleDocTemplate(nombre_archivo, pagesize=landscape(A4))
     elements = []
     styles = getSampleStyleSheet()
     
-    # Título
-    elements.append(Paragraph("BALANCE DE SITUACIÓN INICIAL", styles['Title']))
-    elements.append(Spacer(1, 12))
+    # 2. ENCABEZADO PROFESIONAL
+    if empresa:
+        elements.extend(
+            crear_encabezado_empresa(
+                empresa,
+                "BALANCE DE SITUACIÓN INICIAL",
+                fecha_inicio=primer_asiento.fecha,
+                moneda="USD"
+            )
+        )
+    else:
+        elements.append(Paragraph("BALANCE DE SITUACIÓN INICIAL", styles['Title']))
+        elements.append(Spacer(1, 12))
     
     # --- OBTENER EL PRIMER ASIENTO ---
     primer_asiento = db.query(Asiento).order_by(Asiento.fecha).first()
