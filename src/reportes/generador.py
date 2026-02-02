@@ -7,6 +7,7 @@ from .generadores.libro_diario import generar_pdf_libro_diario
 from .generadores.libro_mayor import generar_pdf_libro_mayor
 from .generadores.balance_comprobacion import generar_balance_comprobacion
 from .generadores.estados_financieros import generar_estado_resultados, generar_balance_general
+from .generadores.balance_situacion_inicial import generar_balance_situacion_inicial
 
 # Re-exportar para mantener compatibilidad con main.py
 __all__ = [
@@ -14,5 +15,6 @@ __all__ = [
     'generar_pdf_libro_mayor',
     'generar_balance_comprobacion',
     'generar_estado_resultados',
-    'generar_balance_general'
+    'generar_balance_general',
+    'generar_balance_situacion_inicial'
 ]

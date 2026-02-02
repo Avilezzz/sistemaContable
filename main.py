@@ -17,7 +17,8 @@ from src.reportes.generador import (
     generar_pdf_libro_mayor, 
     generar_balance_comprobacion,
     generar_estado_resultados, 
-    generar_balance_general
+    generar_balance_general,
+    generar_balance_situacion_inicial
 )
 from src.servicios.inventario import crear_producto, registrar_compra, registrar_venta
 from src.reportes.kardex_pdf import generar_reporte_fifo, generar_reporte_pmp
@@ -34,12 +35,13 @@ class OpcionMenu:
     LIMPIAR_DATOS = "1"
     IMPORTAR_PLAN = "2"
     REGISTRAR_ASIENTO = "3"
-    LIBRO_DIARIO = "4"
-    LIBRO_MAYOR = "5"
-    BALANCE_COMPROBACION = "6"
-    ESTADOS_FINANCIEROS = "7"
-    INVENTARIOS = "8"
-    SALIR = "9"
+    BALANCE_SITUACION = "4"
+    LIBRO_DIARIO = "5"
+    LIBRO_MAYOR = "6"
+    BALANCE_COMPROBACION = "7"
+    ESTADOS_FINANCIEROS = "8"
+    INVENTARIOS = "9"
+    SALIR = "10"
 
 # ============================================
 # FUNCIONES DE UTILIDAD
@@ -559,18 +561,19 @@ def mostrar_menu():
     
     # Reportes
     tabla.add_row("", "\n[bold yellow]═══ REPORTES ═══[/bold yellow]")
-    tabla.add_row("[4]", "📄 Libro Diario")
-    tabla.add_row("[5]", "📒 Libro Mayor")
-    tabla.add_row("[6]", "⚖️  Balance de Comprobación")
-    tabla.add_row("[7]", "💰 Estados Financieros")
+    tabla.add_row("[4]", "📄 Balance de Situacion Inicial")
+    tabla.add_row("[5]", "📄 Libro Diario")
+    tabla.add_row("[6]", "📒 Libro Mayor")
+    tabla.add_row("[7]", "⚖️  Balance de Comprobación")
+    tabla.add_row("[8]", "💰 Estados Financieros")
     
     # Módulos
     tabla.add_row("", "\n[bold blue]═══ MÓDULOS ═══[/bold blue]")
-    tabla.add_row("[8]", "📦 Inventarios (FIFO/PMP)")
+    tabla.add_row("[9]", "📦 Inventarios (FIFO/PMP)")
     
     # Salir
     tabla.add_row("", "")
-    tabla.add_row("[9]", "❌ Salir")
+    tabla.add_row("[10]", "❌ Salir")
     
     console.print(tabla)
 
@@ -591,7 +594,7 @@ def main():
                 
                 opcion = Prompt.ask(
                     "\n[bold yellow]Seleccione una opción[/bold yellow]",
-                    choices=[str(i) for i in range(0, 10)],
+                    choices=[str(i) for i in range(0, 11)],
                     show_choices=False
                 )
                 
@@ -608,6 +611,13 @@ def main():
                 elif opcion == OpcionMenu.REGISTRAR_ASIENTO:
                     vista_registrar_asiento()
                 
+                elif opcion == OpcionMenu.BALANCE_SITUACION:
+                    db = next(get_db())
+                    opcion_generar_reporte_simple(
+                        db, generar_balance_situacion_inicial, 
+                        "balance_situacion_inicial.pdf", "Balance de Situación Inicial"
+                    )
+                    
                 elif opcion == OpcionMenu.LIBRO_DIARIO:
                     db = next(get_db())
                     opcion_generar_reporte_simple(
