@@ -3,13 +3,13 @@ import os
 from datetime import datetime
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Prompt, IntPrompt
+from rich.prompt import Prompt, IntPrompt, Confirm
 from rich.table import Table
-from rich.tree import Tree  # Importación necesaria para el árbol
+from rich.tree import Tree
 from rich import print as rprint
-from src.base_datos.db import init_db, get_db, close_engine
+
 # Importaciones locales
-from src.base_datos.db import init_db, get_db
+from src.base_datos.db import init_db, get_db, close_engine
 from src.servicios.contabilidad import importar_plan_cuentas_desde_excel, registrar_asiento
 from src.modelos.entidades import Cuenta
 from src.reportes.generador import (
@@ -22,10 +22,51 @@ from src.reportes.generador import (
 from src.servicios.inventario import crear_producto, registrar_compra, registrar_venta
 from src.reportes.kardex_pdf import generar_reporte_fifo, generar_reporte_pmp
 from src.servicios.empresa import configurar_empresa, obtener_empresa, empresa_configurada
+
 console = Console()
 
+# ============================================
+# CONSTANTES DEL MENÚ
+# ============================================
+class OpcionMenu:
+    """Enumeración de opciones del menú principal"""
+    CONFIGURAR_EMPRESA = "0"
+    LIMPIAR_DATOS = "1"
+    IMPORTAR_PLAN = "2"
+    REGISTRAR_ASIENTO = "3"
+    LIBRO_DIARIO = "4"
+    LIBRO_MAYOR = "5"
+    BALANCE_COMPROBACION = "6"
+    ESTADOS_FINANCIEROS = "7"
+    INVENTARIOS = "8"
+    SALIR = "9"
 
-# Crear nueva función para la vista de empresa
+# ============================================
+# FUNCIONES DE UTILIDAD
+# ============================================
+def pausar():
+    """Pausa la ejecución hasta que el usuario presione Enter"""
+    input("\n[Presione Enter para continuar...]")
+
+def confirmar_accion(mensaje: str, advertencia: str = None) -> bool:
+    """
+    Solicita confirmación del usuario para acciones críticas
+    
+    Args:
+        mensaje: Pregunta a mostrar
+        advertencia: Mensaje de advertencia adicional (opcional)
+    
+    Returns:
+        bool: True si el usuario confirma, False en caso contrario
+    """
+    if advertencia:
+        console.print(f"\n[bold yellow]⚠ {advertencia}[/bold yellow]")
+    
+    return Confirm.ask(mensaje, default=False)
+
+# ============================================
+# CONFIGURACIÓN DE EMPRESA
+# ============================================
 def vista_configurar_empresa():
     """Configurar o editar datos de la empresa"""
     console.clear()
@@ -67,9 +108,11 @@ def vista_configurar_empresa():
     else:
         console.print(f"\n[bold red]✗ {msg}[/bold red]")
     
-    input("\nPresione Enter para continuar...")
+    pausar()
 
-# --- NUEVA FUNCIÓN: SELECTOR VISUAL DE CUENTAS ---
+# ============================================
+# SELECTOR DE CUENTAS
+# ============================================
 def seleccionar_cuenta_interactiva(db):
     """
     Permite buscar y seleccionar una cuenta visualmente sin saber el código.
@@ -86,7 +129,7 @@ def seleccionar_cuenta_interactiva(db):
                 console.print("[red]No hay cuentas. Importe el Excel primero.[/red]")
                 return None
             
-            # Crear árbol visual
+            # Crear tabla visual
             console.print("\n[bold white]PLAN DE CUENTAS[/bold white]")
             
             table = Table(show_header=True, header_style="bold magenta")
@@ -110,7 +153,8 @@ def seleccionar_cuenta_interactiva(db):
             # Selección
             try:
                 seleccion = IntPrompt.ask("\n[bold green]Seleccione el número (#)[/bold green] o 0 para cancelar")
-                if seleccion == 0: return None
+                if seleccion == 0: 
+                    return None
                 if 1 <= seleccion <= len(opciones_validas):
                     return opciones_validas[seleccion - 1].codigo
                 else:
@@ -143,7 +187,9 @@ def seleccionar_cuenta_interactiva(db):
                 if 1 <= sel <= len(cuentas):
                     return cuentas[sel - 1].codigo
 
-# --- MODIFICADO: VISTA REGISTRAR ASIENTO CON SELECTOR ---
+# ============================================
+# REGISTRO DE ASIENTOS
+# ============================================
 def vista_registrar_asiento():
     """Interfaz interactiva para crear un asiento"""
     console.clear()
@@ -165,7 +211,7 @@ def vista_registrar_asiento():
         # Mostrar tabla temporal del asiento en construcción
         table = Table()
         table.add_column("Cta")
-        table.add_column("Nombre") # Agregamos nombre para mejor visualización
+        table.add_column("Nombre")
         table.add_column("Debe", justify="right", style="green")
         table.add_column("Haber", justify="right", style="red")
         
@@ -197,34 +243,33 @@ def vista_registrar_asiento():
         if accion == "g":
             if diferencia != 0:
                 console.print("[bold red]No se puede guardar un asiento descuadrado.[/bold red]")
-                input("Enter...")
+                pausar()
                 continue
             if len(movimientos) == 0:
                 console.print("[bold red]El asiento está vacío.[/bold red]")
-                input("Enter...")
+                pausar()
                 continue
                 
             fecha_obj = datetime.strptime(fecha_str, "%Y-%m-%d").date()
             
-            # Pasamos solo los datos necesarios al servicio (limpiamos el campo extra 'nombre_cuenta')
+            # Pasamos solo los datos necesarios al servicio
             movimientos_data = [{'cuenta_codigo': m['cuenta_codigo'], 'debe': m['debe'], 'haber': m['haber']} for m in movimientos]
             
             exito, msg = registrar_asiento(db, fecha_obj, descripcion, movimientos_data)
             if exito:
                 console.print(f"[bold green]{msg}[/bold green]")
-                input("Presione Enter para volver al menú...")
+                pausar()
                 break
             else:
                 console.print(f"[bold red]{msg}[/bold red]")
-                input("Enter...")
+                pausar()
             continue
 
-        # --- AQUÍ ESTÁ EL CAMBIO: USO DEL SELECTOR ---
+        # Uso del selector
         if accion == "a":
             codigo_seleccionado = seleccionar_cuenta_interactiva(db)
             
             if codigo_seleccionado:
-                # Buscamos el nombre para mostrarlo bonito en la tabla temporal
                 cuenta_obj = db.query(Cuenta).filter(Cuenta.codigo == codigo_seleccionado).first()
                 
                 console.print(f"\n[italic cyan]Seleccionado: {cuenta_obj.nombre} ({cuenta_obj.codigo})[/italic cyan]")
@@ -243,13 +288,16 @@ def vista_registrar_asiento():
                 
                 movimientos.append({
                     "cuenta_codigo": cuenta_obj.codigo,
-                    "nombre_cuenta": cuenta_obj.nombre, # Guardamos nombre solo para visualización
+                    "nombre_cuenta": cuenta_obj.nombre,
                     "debe": debe,
                     "haber": haber
                 })
 
-# --- FUNCIÓN DE SUBMENÚ INVENTARIO ---
+# ============================================
+# MÓDULO DE INVENTARIOS
+# ============================================
 def menu_inventario():
+    """Submenú del módulo de inventarios"""
     while True:
         console.clear()
         console.print(Panel("[bold magenta]MÓDULO DE INVENTARIOS Y KARDEX (SISTEMA HÍBRIDO)[/bold magenta]"))
@@ -261,18 +309,17 @@ def menu_inventario():
         
         op = Prompt.ask("Seleccione", choices=["1", "2", "3", "4", "5"])
         
-        db = next(get_db()) # Obtener sesión de base de datos
+        db = next(get_db())
         
         if op == "1":
-            # Eliminamos la pregunta del método para que el producto sea neutro
             cod = Prompt.ask("Código Producto")
             nom = Prompt.ask("Nombre")
             try:
-                crear_producto(db, cod, nom) # Llamada simplificada
-                console.print(f"[green]Producto '{nom}' creado exitosamente.[/green]")
+                crear_producto(db, cod, nom)
+                console.print(f"[green]✓ Producto '{nom}' creado exitosamente.[/green]")
             except:
-                console.print("[red]Error: El código ya existe o hubo un problema con la BD.[/red]")
-            input("Presione Enter para continuar...")
+                console.print("[red]✗ Error: El código ya existe o hubo un problema con la BD.[/red]")
+            pausar()
             
         elif op == "2":
             cod = Prompt.ask("Código Producto")
@@ -283,7 +330,7 @@ def menu_inventario():
             
             ok, msg = registrar_compra(db, cod, fecha, cant, costo)
             console.print(f"[{'green' if ok else 'red'}]{msg}[/]")
-            input("Enter...")
+            pausar()
 
         elif op == "3":
             cod = Prompt.ask("Código Producto")
@@ -293,10 +340,9 @@ def menu_inventario():
             
             ok, msg = registrar_venta(db, cod, fecha, cant)
             console.print(f"[{'green' if ok else 'red'}]{msg}[/]")
-            input("Enter...")
+            pausar()
 
         elif op == "4":
-            # Submenú para elegir cómo ver el mismo inventario
             console.print("\n[bold cyan]SELECCIONE LÓGICA DE REPORTE:[/bold cyan]")
             console.print("[1] 📊 Ver bajo lógica FIFO (PEPS)")
             console.print("[2] 📈 Ver bajo lógica Promedio Ponderado (PMP)")
@@ -307,144 +353,324 @@ def menu_inventario():
             if sub_op == "1":
                 if generar_reporte_fifo(db):
                      console.print("[bold green]✔ Reporte generado: reporte_fifo.pdf[/bold green]")
-                     try: os.startfile("reporte_fifo.pdf")
-                     except: pass
+                     try: 
+                         os.startfile("reporte_fifo.pdf")
+                     except: 
+                         pass
                 else:
                     console.print("[yellow]No se pudo generar el reporte FIFO.[/yellow]")
             
             elif sub_op == "2":
                 if generar_reporte_pmp(db):
                      console.print("[bold green]✔ Reporte generado: reporte_pmp.pdf[/bold green]")
-                     try: os.startfile("reporte_pmp.pdf")
-                     except: pass
+                     try: 
+                         os.startfile("reporte_pmp.pdf")
+                     except: 
+                         pass
                 else:
                     console.print("[yellow]No se pudo generar el reporte PMP.[/yellow]")
             
-            input("Presione Enter para continuar...")
+            pausar()
 
         elif op == "5":
             break
 
-# --- MENÚ PRINCIPAL ---
-def mostrar_menu():
+# ============================================
+# OPCIONES DEL MENÚ PRINCIPAL
+# ============================================
+def opcion_limpiar_datos():
+    """Limpiar todos los datos de la base de datos (ideal para demos en clase)"""
     console.clear()
-    # Mostrar información de empresa si existe
+    console.print(Panel(
+        "[bold cyan]🧹 LIMPIAR TODOS LOS DATOS[/bold cyan]\n\n"
+        "[yellow]Esta opción es ideal para demostraciones en clase[/yellow]\n\n"
+        "Se eliminarán:\n"
+        "  ✓ Todos los asientos contables\n"
+        "  ✓ Todas las cuentas del plan\n"
+        "  ✓ Todos los productos e inventarios\n"
+        "  ✓ Configuración de empresa\n\n"
+        "[green]La estructura de la base de datos permanece intacta[/green]\n"
+        "[cyan]Después podrá importar el plan de cuentas nuevamente[/cyan]",
+        border_style="cyan"
+    ))
+    
+    # Confirmación simple para demos rápidas
+    if not Confirm.ask("\n¿Limpiar todos los datos?", default=False):
+        console.print("[yellow]Operación cancelada[/yellow]")
+        pausar()
+        return
+    
+    try:
+        db = next(get_db())
+        
+        with console.status("[bold blue]Limpiando base de datos...[/bold blue]", spinner="dots"):
+            # Importar los modelos necesarios
+            from src.modelos.entidades import (
+                Empresa, Cuenta, Asiento, DetalleAsiento,
+                Producto, MovimientoInventario
+            )
+            
+            # Contar registros antes de eliminar
+            total_registros = (
+                db.query(DetalleAsiento).count() +
+                db.query(Asiento).count() +
+                db.query(MovimientoInventario).count() +
+                db.query(Producto).count() +
+                db.query(Cuenta).count() +
+                db.query(Empresa).count()
+            )
+            
+            # Eliminar en orden: primero detalles, luego maestros
+            db.query(DetalleAsiento).delete()
+            db.query(Asiento).delete()
+            db.query(MovimientoInventario).delete()
+            db.query(Producto).delete()
+            db.query(Cuenta).delete()
+            db.query(Empresa).delete()
+            
+            # Guardar cambios
+            db.commit()
+        
+        console.print("\n" + "="*60)
+        console.print("[bold green]✔ DATOS LIMPIADOS EXITOSAMENTE[/bold green]")
+        console.print("="*60)
+        console.print(f"[cyan]Se eliminaron {total_registros} registros en total[/cyan]\n")
+        console.print("[yellow]💡 Pasos sugeridos para nueva demostración:[/yellow]")
+        console.print("   1️⃣  Configurar empresa (Opción 0)")
+        console.print("   2️⃣  Importar plan de cuentas (Opción 2)")
+        console.print("   3️⃣  ¡Listo para registrar asientos!")
+        
+    except Exception as e:
+        db.rollback()
+        console.print(f"\n[bold red]✗ ERROR: {str(e)}[/bold red]")
+        console.print("[yellow]No se pudieron limpiar los datos[/yellow]")
+    finally:
+        db.close()
+    
+    pausar()
+
+def opcion_importar_plan():
+    """Importar plan de cuentas desde Excel"""
+    console.clear()
+    console.print(Panel("[bold cyan]IMPORTAR PLAN DE CUENTAS[/bold cyan]"))
+    
+    ruta = Prompt.ask("Ruta del archivo Excel", default="datos/plan_cuentas.xlsx")
+    
+    if not os.path.exists(ruta):
+        console.print(f"[bold red]✗ El archivo '{ruta}' no existe[/bold red]")
+        console.print(f"[yellow]Verifique que el archivo exista en: {os.path.abspath(ruta)}[/yellow]")
+        pausar()
+        return
+    
+    db = next(get_db())
+    
+    with console.status("[bold blue]Importando plan de cuentas...[/bold blue]"):
+        exito, msg = importar_plan_cuentas_desde_excel(ruta, db)
+    
+    if exito:
+        console.print(f"[bold green]✔ {msg}[/bold green]")
+    else:
+        console.print(f"[bold red]✗ {msg}[/bold red]")
+    
+    pausar()
+
+def opcion_generar_reporte_simple(db, generador_func, nombre_archivo, titulo):
+    """Generar reporte PDF simple"""
+    with console.status(f"[bold blue]Generando {titulo}...[/bold blue]"):
+        if generador_func(db):
+            console.print(f"[bold green]✔ {titulo} generado: {nombre_archivo}[/bold green]")
+            try: 
+                os.startfile(nombre_archivo)
+            except: 
+                console.print(f"[yellow]Abra manualmente: {nombre_archivo}[/yellow]")
+        else:
+            console.print(f"[bold red]✗ Error al generar {titulo}[/bold red]")
+    pausar()
+
+def opcion_estados_financieros():
+    """Generar Estados Financieros"""
+    console.clear()
+    console.print(Panel("[bold cyan]ESTADOS FINANCIEROS[/bold cyan]"))
+    
+    db = next(get_db())
+    
+    with console.status("[bold blue]Generando Estados Financieros...[/bold blue]"):
+        utilidad = generar_estado_resultados(db)
+        console.print(f"[green]✔ Estado de Resultados generado (Utilidad: ${utilidad:,.2f})[/green]")
+        
+        if generar_balance_general(db, utilidad):
+            console.print("[green]✔ Balance General generado correctamente[/green]")
+            try:
+                os.startfile("estado_resultados.pdf")
+                os.startfile("balance_general.pdf")
+            except: 
+                console.print("[yellow]Abra los archivos manualmente[/yellow]")
+        else:
+            console.print("[red]✗ Error generando Balance General[/red]")
+    
+    pausar()
+
+# ============================================
+# MENÚ PRINCIPAL
+# ============================================
+def mostrar_menu():
+    """Muestra el menú principal del sistema"""
+    console.clear()
+    
+    # Obtener información de la empresa
     db = next(get_db())
     empresa = obtener_empresa(db)
     
+    # Título dinámico según configuración
     if empresa:
-        titulo = f"[bold cyan]SISTEMA CONTABLE - {empresa.nombre_comercial or empresa.nombre}[/bold cyan]"
+        titulo = f"SISTEMA CONTABLE - {empresa.nombre_comercial or empresa.nombre}"
+        subtitulo = f"RUC: {empresa.ruc} | v2.1"
     else:
-        titulo = "[bold cyan]SISTEMA CONTABLE PROFESIONAL CLI[/bold cyan]"
+        titulo = "SISTEMA CONTABLE PROFESIONAL CLI"
+        subtitulo = "v2.1 - Listo para Configurar"
     
-    console.print(Panel.fit(titulo, subtitle="v2.1"))
+    # Panel principal
+    console.print(Panel.fit(
+        f"[bold cyan]{titulo}[/bold cyan]",
+        subtitle=subtitulo,
+        border_style="cyan"
+    ))
     
+    # Advertencia si no hay empresa configurada
     if not empresa:
-        console.print("[bold yellow]⚠ ADVERTENCIA: Configure los datos de su empresa primero (opción 0)[/bold yellow]\n")
-    console.print("[0] ⚙️  Configurar Datos de Empresa")  # NUEVA OPCIÓN    
-    console.print(Panel.fit("[bold cyan]SISTEMA CONTABLE PROFESIONAL CLI[/bold cyan]", subtitle="v2.0"))
-    console.print("[1] 📂 Inicializar/Resetear Base de Datos")
-    console.print("[2] 📥 Importar Plan de Cuentas (Excel)")
-    console.print("[3] 📝 Registrar Asiento (Libro Diario)")
-    console.print(Panel("[bold]REPORTES[/bold]", style="white"))
-    console.print("[4] 📄 Libro Diario")
-    console.print("[5] 📒 Libro Mayor")
-    console.print("[6] ⚖  Balance de Comprobación") 
-    console.print("[7] 💰 Estados Financieros (Balance y Resultados)")
-    console.print("[8] 📦 Módulo de Inventarios")
-    console.print("[9] ❌ Salir")
+        console.print(
+            "[bold yellow]⚠ Configure su empresa primero (Opción 0)[/bold yellow]\n"
+        )
+    
+    # Tabla de opciones organizada
+    tabla = Table(show_header=False, box=None, padding=(0, 2))
+    tabla.add_column("Opción", style="bold cyan", width=8)
+    tabla.add_column("Descripción", style="white")
+    
+    # Configuración
+    tabla.add_row("", "[bold magenta]═══ CONFIGURACIÓN ═══[/bold magenta]")
+    tabla.add_row("[0]", "⚙️  Configurar Datos de Empresa")
+    tabla.add_row("[1]", "🧹 Limpiar Datos (Reset para Demo)")
+    tabla.add_row("[2]", "📥 Importar Plan de Cuentas (Excel)")
+    
+    # Operaciones
+    tabla.add_row("", "\n[bold green]═══ OPERACIONES ═══[/bold green]")
+    tabla.add_row("[3]", "📝 Registrar Asiento Contable")
+    
+    # Reportes
+    tabla.add_row("", "\n[bold yellow]═══ REPORTES ═══[/bold yellow]")
+    tabla.add_row("[4]", "📄 Libro Diario")
+    tabla.add_row("[5]", "📒 Libro Mayor")
+    tabla.add_row("[6]", "⚖️  Balance de Comprobación")
+    tabla.add_row("[7]", "💰 Estados Financieros")
+    
+    # Módulos
+    tabla.add_row("", "\n[bold blue]═══ MÓDULOS ═══[/bold blue]")
+    tabla.add_row("[8]", "📦 Inventarios (FIFO/PMP)")
+    
+    # Salir
+    tabla.add_row("", "")
+    tabla.add_row("[9]", "❌ Salir")
+    
+    console.print(tabla)
 
+# ============================================
+# FUNCIÓN PRINCIPAL
+# ============================================
 def main():
-    init_db()
-    while True:
-        mostrar_menu()
-        opcion = Prompt.ask("\n[bold yellow]Seleccione una opción[/bold yellow]", choices=[str(i) for i in range(0, 10)])
+    """Función principal del sistema contable"""
+    try:
+        # Inicializar base de datos
+        with console.status("[bold blue]Inicializando sistema...[/bold blue]"):
+            init_db()
         
-        if opcion == "0":  # NUEVA OPCIÓN
-            vista_configurar_empresa()
-
-        if opcion == "1":
-            if Prompt.ask("¿Resetear BD? SE BORRARÁ TODO", choices=["s", "n"]) == "s":
+        # Bucle principal
+        while True:
+            try:
+                mostrar_menu()
                 
-                # 1. Cerramos la conexión primero
-                close_engine()
+                opcion = Prompt.ask(
+                    "\n[bold yellow]Seleccione una opción[/bold yellow]",
+                    choices=[str(i) for i in range(0, 10)],
+                    show_choices=False
+                )
                 
-                # 2. Ahora sí intentamos borrar
-                try:
-                    if os.path.exists("datos/contabilidad.sqlite"):
-                        os.remove("datos/contabilidad.sqlite")
-                    console.print("[yellow]Archivo eliminado.[/yellow]")
-                except PermissionError:
-                    console.print("[bold red]Error: Windows bloqueó el archivo. Reinicia la terminal e intenta de nuevo.[/bold red]")
-                    continue
-                except FileNotFoundError:
-                    pass
+                # Ejecutar opción seleccionada
+                if opcion == OpcionMenu.CONFIGURAR_EMPRESA:
+                    vista_configurar_empresa()
                 
-                # 3. Volvemos a crear las tablas limpias
-                init_db()
-                console.print("[bold green]✔ Base de datos reseteada correctamente (Sistema en cero).[/bold green]")
-                input("Presione Enter...")
-        elif opcion == "2":
-            ruta = Prompt.ask("Ruta Excel", default="datos/plan_cuentas.xlsx")
-            db = next(get_db())
-            exito, msg = importar_plan_cuentas_desde_excel(ruta, db)
-            console.print(f"[green]{msg}[/green]" if exito else f"[red]{msg}[/red]")
-            input("Enter...")
-        elif opcion == "3":
-            vista_registrar_asiento()
-        elif opcion == "4":
-            db = next(get_db())
-            with console.status("[bold blue]Generando PDF...[/bold blue]"):
-                if generar_pdf_libro_diario(db):
-                    console.print(f"[bold green]✔ Reporte generado exitosamente: libro_diario.pdf[/bold green]")
-                    try: os.startfile("libro_diario.pdf")
-                    except: pass
-                else:
-                    console.print("[bold red]Error al generar el reporte.[/bold red]")
-            input("Presione Enter...")
-
-        elif opcion == "5":
-            db = next(get_db())
-            with console.status("[bold blue]Mayorizando cuentas...[/bold blue]"):
-                if generar_pdf_libro_mayor(db):
-                    console.print(f"[bold green]✔ Reporte generado: libro_mayor.pdf[/bold green]")
-                    try: os.startfile("libro_mayor.pdf")
-                    except: pass
-                else:
-                    console.print("[bold yellow]No hay datos o hubo un error.[/bold yellow]")
-            input("Presione Enter...")
+                elif opcion == OpcionMenu.LIMPIAR_DATOS:
+                    opcion_limpiar_datos()
+                
+                elif opcion == OpcionMenu.IMPORTAR_PLAN:
+                    opcion_importar_plan()
+                
+                elif opcion == OpcionMenu.REGISTRAR_ASIENTO:
+                    vista_registrar_asiento()
+                
+                elif opcion == OpcionMenu.LIBRO_DIARIO:
+                    db = next(get_db())
+                    opcion_generar_reporte_simple(
+                        db, generar_pdf_libro_diario, 
+                        "libro_diario.pdf", "Libro Diario"
+                    )
+                
+                elif opcion == OpcionMenu.LIBRO_MAYOR:
+                    db = next(get_db())
+                    opcion_generar_reporte_simple(
+                        db, generar_pdf_libro_mayor, 
+                        "libro_mayor.pdf", "Libro Mayor"
+                    )
+                
+                elif opcion == OpcionMenu.BALANCE_COMPROBACION:
+                    db = next(get_db())
+                    opcion_generar_reporte_simple(
+                        db, generar_balance_comprobacion, 
+                        "balance_comprobacion.pdf", "Balance de Comprobación"
+                    )
+                
+                elif opcion == OpcionMenu.ESTADOS_FINANCIEROS:
+                    opcion_estados_financieros()
+                
+                elif opcion == OpcionMenu.INVENTARIOS:
+                    menu_inventario()
+                
+                elif opcion == OpcionMenu.SALIR:
+                    console.clear()
+                    console.print(Panel.fit(
+                        "[bold cyan]¡Gracias por usar el Sistema Contable![/bold cyan]\n"
+                        "[white]Desarrollado con ❤️ en Python[/white]",
+                        border_style="cyan"
+                    ))
+                    sys.exit(0)
             
-        elif opcion == "6":
-            db = next(get_db())
-            with console.status("[bold blue]Calculando sumas y saldos...[/bold blue]"):
-                if generar_balance_comprobacion(db):
-                    console.print(f"[bold green]✔ Reporte generado: balance_comprobacion.pdf[/bold green]")
-                    try: os.startfile("balance_comprobacion.pdf")
-                    except: pass
-                else:
-                    console.print("[bold red]Error al generar el reporte.[/bold red]")
-            input("Presione Enter...")
+            except KeyboardInterrupt:
+                console.print("\n[yellow]⚠ Operación cancelada por el usuario[/yellow]")
+                if confirmar_accion("¿Desea salir del sistema?"):
+                    sys.exit(0)
+                continue
+            
+            except Exception as e:
+                console.print(f"\n[bold red]✗ ERROR INESPERADO: {str(e)}[/bold red]")
+                console.print("[yellow]El sistema intentará continuar...[/yellow]")
+                pausar()
+                continue
+    
+    except KeyboardInterrupt:
+        console.print("\n\n[yellow]Sistema cerrado por el usuario[/yellow]")
+        sys.exit(0)
+    except Exception as e:
+        console.print(f"\n[bold red]ERROR CRÍTICO: {str(e)}[/bold red]")
+        sys.exit(1)
+    finally:
+        # Limpiar recursos
+        try:
+            close_engine()
+        except:
+            pass
 
-        elif opcion == "7":
-            db = next(get_db())
-            with console.status("[bold blue]Generando Estados Financieros...[/bold blue]"):
-                utilidad = generar_estado_resultados(db)
-                console.print(f"[green]✔ Estado de Resultados generado (Utilidad: {utilidad:.2f})[/green]")
-                
-                if generar_balance_general(db, utilidad):
-                    console.print(f"[green]✔ Balance General generado correctamente[/green]")
-                    try:
-                        os.startfile("estado_resultados.pdf")
-                        os.startfile("balance_general.pdf")
-                    except: pass
-                else:
-                    console.print("[red]Error generando Balance General[/red]")
-            input("Presione Enter...")
-
-        elif opcion == "8":
-            menu_inventario()
-        elif opcion == "9":
-            sys.exit()
-
+# ============================================
+# PUNTO DE ENTRADA
+# ============================================
 if __name__ == "__main__":
     main()
