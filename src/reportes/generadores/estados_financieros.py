@@ -14,108 +14,105 @@ from src.reportes.encabezado import crear_encabezado_empresa
 
 def generar_estado_resultados(db: Session, nombre_archivo="estado_resultados.pdf"):
     """
-    Genera el Estado de Resultados (Pérdidas y Ganancias).
-    Retorna la UTILIDAD DEL EJERCICIO (float) para usarla en el Balance General.
-    
-    CORRECCIONES:
-    1. Los ingresos (clase 4) son ACREEDORES - su saldo se calcula como HABER - DEBE
-    2. Los gastos (clase 5) y costos (clase 6) son DEUDORES - su saldo se calcula como DEBE - HABER
-    3. Utilidad = Ingresos - (Gastos + Costos)
+    Estado de Resultados SIMPLE - CORREGIDO
     """
     empresa = obtener_empresa(db)
     asientos = db.query(Asiento).order_by(Asiento.fecha).all()
     fecha_inicio = asientos[0].fecha if asientos else None
     fecha_fin = asientos[-1].fecha if asientos else None
-
+    
     doc = SimpleDocTemplate(nombre_archivo, pagesize=A4)
     elements = []
     styles = getSampleStyleSheet()
     
+    # Encabezado
     if empresa:
-        elements.extend(crear_encabezado_empresa(empresa, "ESTADO DE RESULTADOS INTEGRAL", fecha_inicio, fecha_fin))
+        elements.extend(crear_encabezado_empresa(
+            empresa, "ESTADO DE RESULTADOS", fecha_inicio, fecha_fin
+        ))
     else:
-        elements.append(Paragraph("ESTADO DE RESULTADOS INTEGRAL", styles['Title']))
-        elements.append(Spacer(1, 12))
+        elements.append(Paragraph("ESTADO DE RESULTADOS", styles['Title']))
     
-    # 1. INGRESOS (Clase 4 - ACREEDORA)
-    total_ingresos = obtener_saldo_cuenta(db, "4")
+    elements.append(Spacer(1, 12))
     
-    # 2. COSTOS DE VENTAS (Clase 6 - DEUDORA)
-    total_costos = obtener_saldo_cuenta(db, "6")
+    # Obtener datos
+    lista_ingresos, total_ingresos = obtener_cuentas_con_saldo_detallado(db, "4", styles)
+    lista_costos, total_costos = obtener_cuentas_con_saldo_detallado(db, "6", styles)
+    lista_gastos, total_gastos = obtener_cuentas_con_saldo_detallado(db, "5", styles)
     
-    # 3. UTILIDAD BRUTA
+    # Cálculos
     utilidad_bruta = total_ingresos - total_costos
+    utilidad_neta = utilidad_bruta - total_gastos
     
-    # 4. GASTOS OPERACIONALES (Clase 5 - DEUDORA)
-    total_gastos = obtener_saldo_cuenta(db, "5")
-    
-    # 5. UTILIDAD NETA DEL EJERCICIO
-    utilidad_ejercicio = utilidad_bruta - total_gastos
-    
-    # Estructura visual mejorada
+    # Tabla simple
     data = [
-        ["CONCEPTO", "PARCIAL", "TOTAL"],
-        ["", "", ""],
-        ["INGRESOS OPERACIONALES", "", f"{total_ingresos:,.2f}"],
-        ["(-) COSTO DE VENTAS", f"{total_costos:,.2f}", ""],
-        ["", "", ""],
-        ["UTILIDAD BRUTA EN VENTAS", "", f"{utilidad_bruta:,.2f}"],
-        ["", "", ""],
-        ["(-) GASTOS OPERACIONALES", "", ""],
-        ["   Gastos Administrativos y de Ventas", f"{total_gastos:,.2f}", ""],
-        ["", "", ""],
-        ["UTILIDAD OPERACIONAL", "", f"{(utilidad_bruta - total_gastos):,.2f}"],
-        ["", "", ""],
-        ["UTILIDAD NETA DEL EJERCICIO", "", f"{utilidad_ejercicio:,.2f}"]
+        ["CONCEPTO", "VALOR"]
     ]
     
-    t = Table(data, colWidths=[280, 80, 80])
+    # === INGRESOS ===
+    data.append(["INGRESOS OPERACIONALES", ""])
+    for item in lista_ingresos:
+        # item[1] es un Paragraph, lo usamos directamente
+        data.append([item[1], item[2]])
+    data.append(["", f"{total_ingresos:,.2f}"])
+    data.append(["", ""])
     
-    # Color para utilidad/pérdida
-    color_resultado = colors.green if utilidad_ejercicio >= 0 else colors.red
+    # === COSTOS ===
+    data.append(["(-) COSTO DE VENTAS", ""])
+    if lista_costos:
+        for item in lista_costos:
+            data.append([item[1], item[2]])
+    data.append(["", f"{total_costos:,.2f}"])
+    data.append(["", ""])
     
+    # === UTILIDAD BRUTA ===
+    data.append(["UTILIDAD BRUTA", f"{utilidad_bruta:,.2f}"])
+    data.append(["", ""])
+    
+    # === GASTOS ===
+    data.append(["(-) GASTOS OPERACIONALES", ""])
+    for item in lista_gastos:
+        data.append([item[1], item[2]])
+    data.append(["", f"{total_gastos:,.2f}"])
+    data.append(["", ""])
+    
+    # === UTILIDAD NETA ===
+    data.append(["UTILIDAD NETA", f"{utilidad_neta:,.2f}"])
+    
+    # Crear tabla
+    t = Table(data, colWidths=[320, 100])
+    
+    # Estilos SIMPLES
     t.setStyle(TableStyle([
         # Encabezado
         ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
-        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('ALIGN', (0, 0), (0, 0), 'CENTER'),
+        ('ALIGN', (1, 0), (1, 0), 'CENTER'),
+        
+        # Alineación de valores
+        ('ALIGN', (1, 1), (-1, -1), 'RIGHT'),
+        ('FONTSIZE', (0, 1), (-1, -1), 9),
+        
+        # Bordes
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-        # Resaltar ingresos totales
-        ('BACKGROUND', (0, 2), (-1, 2), colors.lightblue),
-        ('FONTNAME', (0, 2), (-1, 2), 'Helvetica-Bold'),
-        # Resaltar utilidad bruta
-        ('BACKGROUND', (0, 5), (-1, 5), colors.lightyellow),
-        ('FONTNAME', (0, 5), (-1, 5), 'Helvetica-Bold'),
-        # Resaltar utilidad operacional
-        ('BACKGROUND', (0, 10), (-1, 10), colors.lightyellow),
-        ('FONTNAME', (0, 10), (-1, 10), 'Helvetica-Bold'),
-        # Resaltar Resultado Final
-        ('BACKGROUND', (0, -1), (-1, -1), colors.lightgrey),
+        
+        # Negrita para UTILIDAD NETA
         ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-        ('TEXTCOLOR', (0, -1), (-1, -1), color_resultado),
-        ('FONTSIZE', (0, -1), (-1, -1), 11),
+        ('FONTSIZE', (0, -1), (-1, -1), 10),
+        ('LINEABOVE', (0, -1), (-1, -1), 2, colors.black),
     ]))
     
     elements.append(t)
     
-    # Agregar nota explicativa
-    elements.append(Spacer(1, 20))
-    nota_style = ParagraphStyle('Nota', parent=styles['Normal'], fontSize=8, textColor=colors.grey)
-    nota = Paragraph(
-        f"Nota: Los saldos se calculan respetando la naturaleza de cada cuenta. "
-        f"Ingresos (Acreedores) = Haber - Debe. Gastos y Costos (Deudores) = Debe - Haber.",
-        nota_style
-    )
-    elements.append(nota)
-    
     try:
         doc.build(elements)
-        print(f"✅ Estado de Resultados generado. Utilidad: ${utilidad_ejercicio:,.2f}")
-        return utilidad_ejercicio  # RETORNAMOS EL VALOR PARA EL BALANCE
+        print(f"✅ Reporte generado: ${utilidad_neta:,.2f}")
+        return utilidad_neta
     except Exception as e:
-        print(f"❌ Error PDF Estado Resultados: {e}")
+        print(f"❌ Error: {e}")
         return 0.0
 
 

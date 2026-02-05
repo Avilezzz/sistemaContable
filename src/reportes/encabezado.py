@@ -32,7 +32,7 @@ def crear_encabezado_empresa(empresa, titulo_reporte, fecha_inicio=None, fecha_f
         'EmpresaNombre',
         parent=styles['Normal'],
         fontSize=14,
-        fontName='Helvetica-Bold',
+        fontName='Times-Bold',
         alignment=1,  # Centrado
         spaceAfter=4,
         textColor=colors.black
@@ -43,7 +43,7 @@ def crear_encabezado_empresa(empresa, titulo_reporte, fecha_inicio=None, fecha_f
         'TituloReporte',
         parent=styles['Normal'],
         fontSize=10,
-        fontName='Helvetica-Bold',
+        fontName='Times-Bold',
         alignment=1,  # Centrado
         spaceAfter=4,
         textColor=colors.black
@@ -54,7 +54,7 @@ def crear_encabezado_empresa(empresa, titulo_reporte, fecha_inicio=None, fecha_f
         'InfoReporte',
         parent=styles['Normal'],
         fontSize=10,
-        fontName='Helvetica',
+        fontName='Times-Roman',
         alignment=1,  # Centrado
         spaceAfter=3,
         textColor=colors.black
