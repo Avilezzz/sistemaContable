@@ -11,7 +11,7 @@ from rich import print as rprint
 # Importaciones locales
 from src.base_datos.db import init_db, get_db, close_engine
 from src.servicios.contabilidad import importar_plan_cuentas_desde_excel, registrar_asiento
-from src.modelos.entidades import Cuenta
+from src.modelos.entidades import Cuenta, Producto, MovimientoInventario
 from src.reportes.generador import (
     generar_pdf_libro_diario, 
     generar_pdf_libro_mayor, 
@@ -193,6 +193,74 @@ def seleccionar_cuenta_interactiva(db):
                 sel = int(sel_str)
                 if 1 <= sel <= len(cuentas):
                     return cuentas[sel - 1].codigo
+                
+def obtener_stock_producto(db, producto_id: int) -> int:
+    """Stock disponible = suma de saldo_cantidad de los lotes de COMPRA."""
+    filas = db.query(MovimientoInventario.saldo_cantidad).filter(
+        MovimientoInventario.producto_id == producto_id,
+        MovimientoInventario.tipo == "COMPRA"
+    ).all()
+    return sum(f[0] for f in filas) if filas else 0
+
+
+def seleccionar_producto_interactivo(db, solo_con_stock: bool = False):
+    """
+    Muestra una tabla de productos para seleccionar sin memorizar el código.
+    Si solo_con_stock=True, filtra los productos con stock > 0 (ideal para VENTAS).
+    Retorna: codigo del producto o None si cancela.
+    """
+    while True:
+        console.print("\n[bold cyan]--- SELECTOR DE PRODUCTOS ---[/bold cyan]")
+        console.print("Escriba parte del nombre/código o presione [Enter] para ver todo.")
+        criterio = Prompt.ask("[bold yellow]Buscar[/bold yellow]", default="VER")
+
+        query = db.query(Producto).order_by(Producto.codigo)
+
+        if criterio and criterio.upper() != "VER":
+            query = query.filter(
+                (Producto.nombre.ilike(f"%{criterio}%")) |
+                (Producto.codigo.ilike(f"%{criterio}%"))
+            )
+
+        productos = query.all()
+
+        if not productos:
+            console.print("[red]No hay productos que coincidan.[/red]")
+            # si el usuario escribió un criterio, que pueda volver a intentar
+            if criterio.upper() != "VER":
+                continue
+            return None
+
+        # Construir tabla
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("#", style="dim", width=4)
+        table.add_column("Código", style="cyan", width=12)
+        table.add_column("Producto", style="white")
+        table.add_column("Stock", justify="right", style="green")
+
+        opciones_validas = []
+        for idx, p in enumerate(productos, start=1):
+            stock = obtener_stock_producto(db, p.id)
+            if solo_con_stock and stock <= 0:
+                continue
+            table.add_row(str(len(opciones_validas) + 1), p.codigo, p.nombre, str(stock))
+            opciones_validas.append(p)
+
+        if not opciones_validas:
+            console.print("[yellow]No hay productos con stock disponible.[/yellow]")
+            return None
+
+        console.print(table)
+
+        try:
+            seleccion = IntPrompt.ask("\n[bold green]Seleccione el número (#)[/bold green] o 0 para cancelar")
+            if seleccion == 0:
+                return None
+            if 1 <= seleccion <= len(opciones_validas):
+                return opciones_validas[seleccion - 1].codigo
+            console.print("[red]Número inválido[/red]")
+        except Exception:
+            console.print("[red]Entrada inválida[/red]")
 
 # ============================================
 # REGISTRO DE ASIENTOS
@@ -321,15 +389,26 @@ def menu_inventario():
         if op == "1":
             cod = Prompt.ask("Código Producto")
             nom = Prompt.ask("Nombre")
+
             try:
                 crear_producto(db, cod, nom)
                 console.print(f"[green]✓ Producto '{nom}' creado exitosamente.[/green]")
+
+                # Previsualización rápida
+                console.print("\n[bold cyan]Productos registrados (vista rápida):[/bold cyan]")
+                _ = seleccionar_producto_interactivo(db)  # solo para que los vea en tabla (puede cancelar)
             except:
                 console.print("[red]✗ Error: El código ya existe o hubo un problema con la BD.[/red]")
             pausar()
+
             
         elif op == "2":
-            cod = Prompt.ask("Código Producto")
+           # 👇 Selector visual (tabla) en vez de escribir código a mano
+            cod = seleccionar_producto_interactivo(db)
+            if not cod:
+                console.print("[yellow]Operación cancelada.[/yellow]")
+                pausar()
+                continue
             cant = int(Prompt.ask("Cantidad"))
             costo = float(Prompt.ask("Costo Unitario"))
             fecha_str = Prompt.ask("Fecha (YYYY-MM-DD)", default=datetime.now().strftime("%Y-%m-%d"))
@@ -343,7 +422,12 @@ def menu_inventario():
 
 
         elif op == "3":
-            cod = Prompt.ask("Código Producto")
+            # 👇 Selector visual, pero SOLO productos con stock disponible
+            cod = seleccionar_producto_interactivo(db, solo_con_stock=True)
+            if not cod:
+                console.print("[yellow]Operación cancelada o no hay stock.[/yellow]")
+                pausar()
+                continue
             cant = int(Prompt.ask("Cantidad a Vender"))
             precio = float(Prompt.ask("Precio Unitario de Venta (sin IVA)"))
         
