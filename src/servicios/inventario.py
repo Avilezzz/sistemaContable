@@ -1,6 +1,19 @@
 from datetime import date
 from sqlalchemy.orm import Session
 from src.modelos.entidades import Producto, MovimientoInventario
+from src.servicios.contabilidad import registrar_asiento
+
+
+
+# === Cuentas contables (DEMO) ===
+CTA_INVENTARIO = "1.1.03.01"     # Inventario productos terminados (ajusta si tu plan tiene otro)
+CTA_CAJA = "1.1.01.01"           # Caja
+CTA_BANCOS = "1.1.01.02"         # Bancos (opcional)
+CTA_CLIENTES = "1.1.02.01"       # Clientes (CxC)
+CTA_PROVEEDORES = "2.1.01.01"    # Proveedores (CxP)
+CTA_VENTAS = "4.1.01"            # Ventas productos terminados
+CTA_COSTO_VENTAS = "5.1.01"      # Para demo como “costo de ventas” (si tu plan tiene otra mejor, cámbiala)
+
 
 def crear_producto(db: Session, codigo: str, nombre: str):
     """
@@ -33,6 +46,39 @@ def registrar_compra(db: Session, codigo_prod: str, fecha: date, cantidad: int, 
     db.add(nuevo_mov)
     db.commit()
     return True, "Compra registrada exitosamente."
+
+def registrar_compra_con_asiento(
+    db: Session,
+    codigo_prod: str,
+    fecha: date,
+    cantidad: int,
+    costo_unit: float,
+    es_credito: bool = False
+):
+    ok, msg = registrar_compra(db, codigo_prod, fecha, cantidad, costo_unit)
+    if not ok:
+        return False, msg
+
+    total = cantidad * costo_unit
+
+    # Compra contado => Haber Caja. Compra crédito => Haber Proveedores.
+    cuenta_haber = CTA_PROVEEDORES if es_credito else CTA_CAJA
+
+    movimientos = [
+        {"cuenta_codigo": CTA_INVENTARIO, "debe": total, "haber": 0.0},
+        {"cuenta_codigo": cuenta_haber,   "debe": 0.0,  "haber": total},
+    ]
+
+    ok2, msg2 = registrar_asiento(
+        db,
+        fecha,
+        f"Compra inventario {codigo_prod} x{cantidad} (sin IVA)",
+        movimientos
+    )
+    if not ok2:
+        return False, f"Compra OK, pero asiento falló: {msg2}"
+
+    return True, "Compra + asiento registrados."
 
 def registrar_venta(db: Session, codigo_prod: str, fecha: date, cantidad: int):
     """
@@ -93,4 +139,50 @@ def registrar_venta(db: Session, codigo_prod: str, fecha: date, cantidad: int):
     db.add(venta)
     db.commit()
     
-    return True, "Venta registrada."
+    return True, "Venta registrada.", costo_total_salida
+
+def registrar_venta_con_asientos(
+    db: Session,
+    codigo_prod: str,
+    fecha: date,
+    cantidad: int,
+    precio_unit_venta: float,
+    es_credito: bool = False
+):
+    # 1) Registrar salida inventario y obtener costo real (según tu lógica)
+    ok, msg, costo_total = registrar_venta(db, codigo_prod, fecha, cantidad)
+    if not ok:
+        return False, msg
+
+    total_venta = cantidad * precio_unit_venta
+
+    # 2) Asiento de INGRESO
+    cuenta_debe = CTA_CLIENTES if es_credito else CTA_CAJA
+    mov_ingreso = [
+        {"cuenta_codigo": cuenta_debe, "debe": total_venta, "haber": 0.0},
+        {"cuenta_codigo": CTA_VENTAS,  "debe": 0.0,        "haber": total_venta},
+    ]
+    ok1, msg1 = registrar_asiento(
+        db,
+        fecha,
+        f"Venta {codigo_prod} x{cantidad} (sin IVA) {'CRÉDITO' if es_credito else 'CONTADO'}",
+        mov_ingreso
+    )
+    if not ok1:
+        return False, f"Venta OK, pero asiento de ingreso falló: {msg1}"
+
+    # 3) Asiento de COSTO (COGS)
+    mov_costo = [
+        {"cuenta_codigo": CTA_COSTO_VENTAS, "debe": costo_total, "haber": 0.0},
+        {"cuenta_codigo": CTA_INVENTARIO,   "debe": 0.0,        "haber": costo_total},
+    ]
+    ok2, msg2 = registrar_asiento(
+        db,
+        fecha,
+        f"Costo de venta {codigo_prod} x{cantidad}",
+        mov_costo
+    )
+    if not ok2:
+        return False, f"Asiento ingreso OK, pero costo falló: {msg2}"
+
+    return True, "Venta + asientos (ingreso y costo) registrados."

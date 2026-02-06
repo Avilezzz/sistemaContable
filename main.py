@@ -20,7 +20,12 @@ from src.reportes.generador import (
     generar_balance_general,
     generar_balance_situacion_inicial
 )
-from src.servicios.inventario import crear_producto, registrar_compra, registrar_venta
+from src.servicios.inventario import (
+    crear_producto,
+    registrar_compra_con_asiento,
+    registrar_venta_con_asientos
+)
+
 from src.reportes.kardex_pdf import generar_reporte_fifo, generar_reporte_pmp
 from src.servicios.empresa import configurar_empresa, obtener_empresa, empresa_configurada
 
@@ -329,20 +334,28 @@ def menu_inventario():
             costo = float(Prompt.ask("Costo Unitario"))
             fecha_str = Prompt.ask("Fecha (YYYY-MM-DD)", default=datetime.now().strftime("%Y-%m-%d"))
             fecha = datetime.strptime(fecha_str, "%Y-%m-%d").date()
-            
-            ok, msg = registrar_compra(db, cod, fecha, cant, costo)
+
+            es_credito = Confirm.ask("¿Compra a crédito (Proveedores)?", default=False)
+
+            ok, msg = registrar_compra_con_asiento(db, cod, fecha, cant, costo, es_credito=es_credito)
             console.print(f"[{'green' if ok else 'red'}]{msg}[/]")
             pausar()
+
 
         elif op == "3":
             cod = Prompt.ask("Código Producto")
             cant = int(Prompt.ask("Cantidad a Vender"))
+            precio = float(Prompt.ask("Precio Unitario de Venta (sin IVA)"))
+        
             fecha_str = Prompt.ask("Fecha (YYYY-MM-DD)", default=datetime.now().strftime("%Y-%m-%d"))
             fecha = datetime.strptime(fecha_str, "%Y-%m-%d").date()
-            
-            ok, msg = registrar_venta(db, cod, fecha, cant)
+        
+            es_credito = Confirm.ask("¿Venta a crédito (Clientes)?", default=False)
+        
+            ok, msg = registrar_venta_con_asientos(db, cod, fecha, cant, precio_unit_venta=precio, es_credito=es_credito)
             console.print(f"[{'green' if ok else 'red'}]{msg}[/]")
             pausar()
+
 
         elif op == "4":
             console.print("\n[bold cyan]SELECCIONE LÓGICA DE REPORTE:[/bold cyan]")
